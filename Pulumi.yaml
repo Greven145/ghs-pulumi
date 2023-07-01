@@ -1,0 +1,25 @@
+name: gloomhavensecretariat
+runtime: dotnet
+description: A C# program to deploy a containerized service on Azure
+main: src/ghs/
+template:
+  description: GHS with caddy template
+  config:
+    azure-native:location:
+      description: The azure location to create the resource group in
+      default: CanadaCentral
+    gloomhavensecretariat:appName:
+      description: The name of your customized GHS server
+      default: ghs
+    gloomhavensecretariat:registryName:
+      description: The name of your image registry
+      default: ghs
+    gloomhavensecretariat:cpu:
+      description: The number of CPUs to assign to the container
+      default: 1
+    gloomhavensecretariat:memory:
+      description: The amount of memory to assign to the container
+      default: 1
+    gloomhavensecretariat:domain:
+      description: The name of your Azure DNS Zone. (Optional)
+      default: ghs.your.dnszone.com
