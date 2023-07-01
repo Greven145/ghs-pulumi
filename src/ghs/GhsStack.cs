@@ -1,7 +1,6 @@
 ﻿using gloomhavensecretariat.Resources;
 using Pulumi;
 using Pulumi.AzureNative.Resources;
-using System;
 
 namespace gloomhavensecretariat;
 
