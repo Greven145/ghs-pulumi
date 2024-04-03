@@ -7,8 +7,8 @@ namespace gloomhavensecretariat.Resources;
 
 public class GhsRecordSetArgs : ResourceArgs {
     [Input("domain")] public required Input<string> Domain { get; init; }
-    [Input("ipAddress")] public required Input<string> IpAddress { get; init; }
     [Input("resourceGroupName")] public required Input<string> ResourceGroupName { get; init; }
+    [Input("hostName")] public required Input<string> HostName { get; init; }
 }
 
 public class GhsRecordSet : ComponentResource {
@@ -19,11 +19,10 @@ public class GhsRecordSet : ComponentResource {
         bool remote = false) : base(ComponentName, name, args, options, remote) {
         var subDomainClient = new RecordSet("subdomain", new RecordSetArgs {
             ResourceGroupName = args.ResourceGroupName,
-            RecordType = "A",
-            ARecords = new[] {
-                new ARecordArgs {
-                    Ipv4Address = args.IpAddress
-                }
+            RecordType = "CNAME",
+            CnameRecord = new CnameRecordArgs
+            {
+                Cname = args.HostName
             },
             ZoneName = args.Domain,
             Ttl = 60,

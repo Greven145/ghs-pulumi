@@ -15,7 +15,9 @@ public class GhsImage : ComponentResource {
     private const string ComponentName = "azure:ghs:image";
     [Output("imageName")] public Output<string> ImageName { get; set; }
 
-    public GhsImage(string name, GhsImageArgs args, ComponentResourceOptions? options = null,
+    public GhsImage(string name,
+        GhsImageArgs args,
+        ComponentResourceOptions? options = null,
         bool remote = false) : base(ComponentName, name, args, options, remote) {
         var loginServer = args.Registry.Apply(r => r.LoginServer);
         var userName = args.Registry.Apply(r => r.UserName);
@@ -24,7 +26,8 @@ public class GhsImage : ComponentResource {
         var image = new Image("ghs-with-caddy", new ImageArgs {
             ImageName = Output.Format(
                 $"{args.Registry.Apply(r => r.LoginServer)}/{args.AppName}/ghs-with-caddy:{args.ImageTag}"),
-            Build = new DockerBuildArgs {
+            Build = new DockerBuildArgs
+            {
                 Context = "../ghs-with-caddy",
                 Platform = "linux/amd64"
             },
@@ -33,6 +36,24 @@ public class GhsImage : ComponentResource {
                 Username = userName,
                 Password = password
             }
+        });
+
+        var latestImage = new Image("ghs-with-caddy-version", new ImageArgs
+        {
+            ImageName = Output.Format(
+                $"{args.Registry.Apply(r => r.LoginServer)}/{args.AppName}/ghs-with-caddy:latest"),
+            Build = new DockerBuildArgs
+            {
+                Context = "../ghs-with-caddy",
+                Platform = "linux/amd64"
+            },
+            Registry = new RegistryArgs
+            {
+                Server = loginServer,
+                Username = userName,
+                Password = password
+            },
+            SkipPush = args.ImageTag.Apply(tag => tag == "latest")
         });
 
         ImageName = image.ImageName;

@@ -8,60 +8,55 @@ public class GhsStack : Stack {
     [Output("domain")] public Output<string> Domain { get; set; } = Output.Create(string.Empty);
     [Output("hostname")] public Output<string> HostName { get; set; }
     [Output("url")] public Output<string> Url { get; set; }
+    [Output("imageTag")] public Output<string> ImageTag { get; set; }
 
     public GhsStack() {
-        var config = new Config();
-        var appName = config.Get("appName") ?? "ghs";
-        var registryName = config.Get("registryName") ?? "ghsreg";
-        var containerPorts = config.GetObject<int[]>("containerPorts") ?? new[] { 80 };
-        var cpu = config.GetDouble("cpu") ?? 1;
-        var memory = config.GetDouble("memory") ?? 2;
-        var imageTag = config.Get("imageTag") ?? "latest";
-        var domain = config.Get("domain");
+        var config = new GhsConfig(new Config());
 
         var resourceGroup = new ResourceGroup("resourcegroup", new ResourceGroupArgs {
-            ResourceGroupName = appName
+            ResourceGroupName = config.AppName
         });
 
         var registry = new GhsRegistry("registry", new GhsRegistryArgs {
             ResourceGroupName = resourceGroup.Name,
-            RegistryName = registryName
+            RegistryName = config.RegistryName
         });
 
         var image = new GhsImage("ghs-with-caddy", new GhsImageArgs {
-            AppName = appName,
-            ImageTag = imageTag,
+            AppName = config.AppName,
+            ImageTag = config.ImageTag,
             Registry = registry
         });
 
         var storageAccount = new GhsStorage("storageAccount", new GhsStorageArgs {
             ResourceGroupName = resourceGroup.Name,
-            StorageAccountName = appName
+            StorageAccountName = config.AppName
         });
 
         var containerGroup = new GhsContainerGroup("container-group", new GhsContainerGroupArgs {
-            ResourceGroupName = resourceGroup.Name,
-            ContainerPorts = containerPorts,
-            Cpu = cpu,
-            Memory = memory,
             Image = image,
-            GroupName = appName,
             Registry = registry,
             Storage = storageAccount,
             Location = resourceGroup.Location,
-            Domain = domain!
+            ResourceGroupName = resourceGroup.Name,
+            ContainerPorts = config.ContainerPorts,
+            Cpu = config.Cpu,
+            Memory = config.Memory,
+            GroupName = config.AppName,
+            Domain = config.Domain
         });
 
-        if (domain is not null) {
+        if (config.Domain is not null) {
             var subDomainClient = new GhsRecordSet("subdomain-client", new GhsRecordSetArgs {
                 ResourceGroupName = resourceGroup.Name,
-                IpAddress = containerGroup.IpAddress.Apply(ip => ip),
-                Domain = domain
+                HostName = containerGroup.Fqdn,
+                Domain = config.Domain
             });
             Domain = subDomainClient.Fqdn;
         }
 
         HostName = containerGroup.Fqdn.Apply(fqdn => fqdn);
         Url = containerGroup.IpAddress.Apply(ip => $"http://{ip}:443");
+        ImageTag = image.ImageName.Apply(name => name);
     }
 }
