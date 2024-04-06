@@ -1,31 +1,30 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.IO;
 using System.Linq;
 using Pulumi;
 using Pulumi.AzureNative.ContainerInstance;
 using Pulumi.AzureNative.ContainerInstance.Inputs;
 using Pulumi.Random;
+using FileShare = Pulumi.AzureNative.Storage.FileShare;
 
 namespace gloomhavensecretariat.Resources;
 
-public class GhsContainerGroupArgs : ResourceArgs
-{
-    [Input("containerPorts")] public Input<int[]> ContainerPorts { get; set; } = new[] { 80, 443, 2019 };
-    [Input("cpu")] public Input<double> Cpu { get; set; } = 1;
-    public new static GhsRegistryArgs Empty => new();
-    [Input("groupName")] public Input<string> GroupName { get; set; } = "ghs";
-    [Input("image")] public Input<GhsImage>? Image { get; set; } = null!;
-    [Input("memory")] public Input<double> Memory { get; set; } = 1;
-    [Input("registry")] public Input<GhsRegistry>? Registry { get; set; } = null!;
-
-    [Input("resourceGroupName")] public Input<string> ResourceGroupName { get; set; } = "ghs";
-    [Input("storage")] public Input<GhsStorage>? Storage { get; set; } = null!;
-    [Input("domain")] public Input<string>? Domain { get; set; } = null!;
-    [Input("location")] public Input<string>? Location { get; set; } = "CanadaCentral";
+public class GhsContainerGroupArgs : ResourceArgs {
+    [Input("containerPorts")] public required Input<int[]> ContainerPorts { get; init; }
+    [Input("cpu")] public required Input<double> Cpu { get; init; }
+    [Input("domain")] public required Input<string?> Domain { get; init; }
+    [Input("groupName")] public required Input<string> GroupName { get; init; }
+    [Input("image")] public required Input<GhsImage> Image { get; init; }
+    [Input("location")] public required Input<string> Location { get; init; }
+    [Input("memory")] public required Input<double> Memory { get; init; }
+    [Input("registry")] public required Input<GhsRegistry> Registry { get; init; }
+    [Input("resourceGroupName")] public required Input<string> ResourceGroupName { get; init; }
+    [Input("storage")] public required Input<GhsStorage> Storage { get; init; }
 }
 
-public class GhsContainerGroup : ComponentResource
-{
+public class GhsContainerGroup : ComponentResource {
     private const string ComponentName = "azure:ghs:containergroup";
 
     private static readonly Dictionary<string, string> VolumeMaps = new() {
@@ -38,78 +37,38 @@ public class GhsContainerGroup : ComponentResource
 
     [Output("ipAddress")] public Output<string> IpAddress { get; set; }
 
-    public GhsContainerGroup(string name, ComponentResourceOptions? options = null) : this(name, null, options)
-    {
-    }
-
-    public GhsContainerGroup(string name, GhsContainerGroupArgs? args, ComponentResourceOptions? options = null,
-        bool remote = false) : base(ComponentName, name, args, options, remote)
-    {
-        var resourceGroupName = args?.ResourceGroupName ?? "ghs";
-        var groupName = args?.GroupName ?? "ghs";
-        var registry = args?.Registry ?? throw new Exception("Registry is required");
-        var storage = args?.Storage ?? throw new Exception("Registry is required");
-        var containerPorts = args?.ContainerPorts ?? new[] { 80, 443, 2019 };
-        var image = args?.Image ?? throw new Exception("Image is required");
-        var location = args?.Location ?? "CanadaCentral";
-        
+    public GhsContainerGroup(string name, GhsContainerGroupArgs args, ComponentResourceOptions? options = null,
+        bool remote = false) : base(ComponentName, name, args, options, remote) {
         // Use a random string to give the service a unique DNS name.
-        var dnsName = new RandomString("dns-name", new RandomStringArgs
-        {
+        var dnsName = new RandomString("dns-name", new RandomStringArgs {
             Length = 8,
             Special = false
         }).Result.Apply(result => $"{result.ToLower()}");
 
-        var domain = args?.Domain is not null
+        var domain = args.Domain is not null
             ? args.Domain.Apply(d => $"ghs.{d}")
-            : Output.Format($"{groupName}-{dnsName}.${location}.azurecontainer.io");
+            : Output.Format($"{args.GroupName}-{dnsName}.${args.Location}.azurecontainer.io");
 
-        var containerGroup = new ContainerGroup("container-group", new ContainerGroupArgs
-        {
-            ResourceGroupName = resourceGroupName,
-            ContainerGroupName = Output.Format($"{groupName}-ghs"),
+        var containerGroup = new ContainerGroup("container-group", new ContainerGroupArgs {
+            ResourceGroupName = args.ResourceGroupName,
+            ContainerGroupName = Output.Format($"{args.GroupName}-ghs"),
             OsType = OperatingSystemTypes.Linux,
             RestartPolicy = ContainerGroupRestartPolicy.Always,
-            ImageRegistryCredentials = new ImageRegistryCredentialArgs
-            {
-                Server = registry.Apply(r => r.LoginServer),
-                Username = registry.Apply(r => r.UserName),
-                Password = registry.Apply(r => r.Password)
-            },
+            ImageRegistryCredentials = CredentialsFromRegistry(args.Registry),
             Sku = ContainerGroupSku.Standard,
-            Volumes = storage.Apply(s =>
-            {
-                return s.Volumes.Apply(v => v.Select(fileShare => new VolumeArgs
-                {
-                    AzureFile = new AzureFileVolumeArgs
-                    {
-                        ShareName = fileShare.Name,
-                        StorageAccountName = s.Name,
-                        StorageAccountKey = s.Key
-                    },
-                    Name = fileShare.Name
-                }).ToList());
-            }),
+            Volumes = args.Storage.Apply(s => s.Volumes.Apply(v => v.Select(VolumeFromFileShare(s)).ToList())),
             Containers = new[] {
                 new ContainerArgs {
                     Name = "ghs-with-caddy",
-                    Image = image.Apply(i => i.ImageName),
-                    Ports = containerPorts.Apply(ports => ports.Select(port => new ContainerPortArgs {
-                        Port = port,
-                        Protocol = ContainerNetworkProtocol.TCP
-                    })),
+                    Image = args.Image.Apply(i => i.ImageName),
+                    Ports = args.ContainerPorts.Apply(ports => ports.Select(ContainerPortFromInt)),
                     Resources = new ResourceRequirementsArgs {
                         Requests = new ResourceRequestsArgs {
                             Cpu = args!.Cpu,
                             MemoryInGB = args.Memory
                         }
                     },
-                    VolumeMounts = storage.Apply(s => s.Volumes.Apply(v => v.Select(
-                        fileShare => new VolumeMountArgs {
-                            MountPath = fileShare.Name.Apply(n => VolumeMaps[n]),
-                            Name = fileShare.Name.Apply(n => n),
-                            ReadOnly = false
-                        }).ToList())),
+                    VolumeMounts = args.Storage.Apply(storage => storage.Volumes.Apply(FileSharesToVolumes)),
                     EnvironmentVariables = new EnvironmentVariableArgs[] {
                         new() {
                             Name = "HOST_NAME",
@@ -118,12 +77,10 @@ public class GhsContainerGroup : ComponentResource
                     }
                 }
             },
-            IpAddress = new IpAddressArgs
-            {
+            IpAddress = new IpAddressArgs {
                 Type = ContainerGroupIpAddressType.Public,
-                DnsNameLabel = Output.Format($"{groupName}-{dnsName}"),
-                Ports = containerPorts.Apply(ports => ports.Select(port => new PortArgs
-                {
+                DnsNameLabel = Output.Format($"{args.GroupName}-{dnsName}"),
+                Ports = args.ContainerPorts.Apply(ports => ports.Select(port => new PortArgs {
                     Port = port,
                     Protocol = ContainerGroupNetworkProtocol.TCP
                 }))
@@ -138,4 +95,27 @@ public class GhsContainerGroup : ComponentResource
             { "fqdn", Fqdn }
         });
     }
+
+    private static Func<FileShare, VolumeArgs> VolumeFromFileShare(GhsStorage s) =>
+        fileShare => new VolumeArgs {
+            AzureFile = new AzureFileVolumeArgs {
+                ShareName = fileShare.Name,
+                StorageAccountName = s.Name,
+                StorageAccountKey = s.Key
+            },
+            Name = fileShare.Name
+        };
+
+    private static ImageRegistryCredentialArgs CredentialsFromRegistry(Input<GhsRegistry> registry) =>
+        new() {
+            Server =   registry.Apply(r => r.LoginServer),
+            Username = registry.Apply(r => r.UserName),
+            Password = registry.Apply(r => r.Password)
+        };
+    private static ContainerPortArgs ContainerPortFromInt(int port) =>
+        new() { Port = port, Protocol = ContainerNetworkProtocol.TCP };
+    private static VolumeMountArgs VolumeMountFromFileShare(Pulumi.AzureNative.Storage.FileShare fs) =>
+        new() { MountPath = fs.Name.Apply(n => VolumeMaps[n]), Name = fs.Name.Apply(n => n), ReadOnly = false };
+    private static List<VolumeMountArgs> FileSharesToVolumes(ImmutableArray<FileShare> fs) =>
+        fs.Select(VolumeMountFromFileShare).ToList();
 }

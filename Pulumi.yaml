@@ -23,3 +23,6 @@ template:
     gloomhavensecretariat:domain:
       description: The name of your Azure DNS Zone. (Optional)
       default: ghs.your.dnszone.com
+    gloomhavensecretariat:ImageTag:
+      description: The version of GHS to base the docker container on
+      default: latest
